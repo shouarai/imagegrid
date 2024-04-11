@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { Modal } from "./Modal";
 // import { ImageUploader } from "./ImageUploader";
 // import { ImageList } from "./ImageList";
@@ -16,8 +16,8 @@ export function ImageGridDragDrop() {
   const [gridSize, setGridSize] = useState({ rows: 4, cols: 4 }); //グリッドサイズの状態管理
   const [selectedImage, setSelectedImage] = useState(null); // 選択された画像のURL
   const [isModalOpen, setIsModalOpen] = useState(false); // モーダルの表示状態
-  const [selectedGridImageIndex, setSelectedGridImageIndex] = useState(null); // 選択された画像のインデックス（グリッド内）を追跡する新しい状態
-  const [draggedImages, setDraggedImages] = useState([]); // 複数の画像を保持する新しい状態
+  // 選択された画像のインデックス（グリッド内）を追跡する新しい状態
+  const [selectedGridImageIndex, setSelectedGridImageIndex] = useState(null);
 
   useEffect(() => {
     const { rows, cols } = gridSize; // 現在のグリッドサイズを取得
@@ -57,7 +57,7 @@ export function ImageGridDragDrop() {
         fetchImages();
       } catch (error) {
         console.error("Failed to fetch saved grid data:", error);
-        // alert("Failed to fetch saved grid data:");
+        alert("Failed to fetch saved grid data:");
         // 保存されたgridDataの取得に失敗した場合、既存のロジックを実行
 
         fetchImages();
@@ -85,7 +85,7 @@ export function ImageGridDragDrop() {
                     .fill()
                     .map((_, colIndex) => {
                       // console.log(colIndex + ":" + rowIndex);
-                      const imageIndex = rowIndex * cols + colIndex;
+                      const imageIndex = rowIndex * 4 + colIndex;
                       console.log(imageIndex);
                       return results[imageIndex]
                         ? `https://www.teraos.net/sptokyo7/api/v2/shaddy/image_preview.php?assetid=${results[imageIndex]}`
@@ -123,37 +123,34 @@ export function ImageGridDragDrop() {
     if (nombre) {
       fetchSavedGridData();
     }
-  }, [gridSize]);
+  }, [gridSize]); // 空の依存配列を指定して、コンポーネントのマウント時にのみ実行
 
-  const initializeGridData = useCallback(
-    (newRows, newCols) => {
-      // 現在のgridDataから全ての画像URLを抽出し、一次元配列に平坦化する
-      const allImages = gridData.flat().filter((image) => image !== null);
+  const initializeGridData = (newRows, newCols) => {
+    // 現在のgridDataから全ての画像URLを抽出し、一次元配列に平坦化する
+    const allImages = gridData.flat().filter((image) => image !== null);
 
-      // 新しいグリッドサイズに基づいて空のグリッドデータを作成
-      let newGridData = Array(newRows)
-        .fill()
-        .map(() => Array(newCols).fill(null));
-      let imageIndex = 0; // allImages内での現在の画像のインデックス
+    // 新しいグリッドサイズに基づいて空のグリッドデータを作成
+    let newGridData = Array(newRows)
+      .fill()
+      .map(() => Array(newCols).fill(null));
+    let imageIndex = 0; // allImages内での現在の画像のインデックス
 
-      // 新しいグリッドデータに画像を流し込む
-      for (let rowIndex = 0; rowIndex < newRows; rowIndex++) {
-        for (let colIndex = 0; colIndex < newCols; colIndex++) {
-          if (imageIndex < allImages.length) {
-            newGridData[rowIndex][colIndex] = allImages[imageIndex];
-            imageIndex++;
-          }
+    // 新しいグリッドデータに画像を流し込む
+    for (let rowIndex = 0; rowIndex < newRows; rowIndex++) {
+      for (let colIndex = 0; colIndex < newCols; colIndex++) {
+        if (imageIndex < allImages.length) {
+          newGridData[rowIndex][colIndex] = allImages[imageIndex];
+          imageIndex++;
         }
       }
+    }
 
-      // 新しいグリッドデータをセット
-      setGridData(newGridData);
+    // 新しいグリッドデータをセット
+    setGridData(newGridData);
 
-      // グリッドサイズを更新
-      setGridSize({ rows: newRows, cols: newCols });
-    },
-    [gridData]
-  );
+    // グリッドサイズを更新
+    setGridSize({ rows: newRows, cols: newCols });
+  };
 
   // const handleDragStart = (e, index) => {
   //   const dragData = JSON.stringify({
@@ -163,102 +160,59 @@ export function ImageGridDragDrop() {
   //   e.dataTransfer.setData("application/json", dragData);
   // };
 
-  const handleGridDragStart = useCallback((e, rowIndex, cellIndex) => {
+  const handleGridDragStart = (e, rowIndex, cellIndex) => {
     const dragData = JSON.stringify({
       rowIndex,
       cellIndex,
-      fromGrid: true,
+      fromList: false,
     });
     e.dataTransfer.setData("application/json", dragData);
-  }, []);
+  };
 
-  const handleDrop = useCallback(
-    (e, dropRowIndex, dropCellIndex) => {
-      e.preventDefault();
-      setSelectedGridImageIndex(null);
-      const data = JSON.parse(e.dataTransfer.getData("application/json"));
+  const handleDrop = (e, dropRowIndex, dropCellIndex) => {
+    e.preventDefault();
+    setSelectedGridImageIndex(null);
+    const { index, rowIndex, cellIndex, fromList } = JSON.parse(
+      e.dataTransfer.getData("application/json")
+    );
 
-      if (data.fromList) {
-        const imageUrl = imageList[data.index];
-        // 外部からのドロップ
-        const newData = [...gridData];
-        newData[dropRowIndex][dropCellIndex] = imageUrl;
-        setGridData(newData);
+    if (fromList) {
+      const imageUrl = imageList[index];
+      // 外部からのドロップ
+      const newData = [...gridData];
+      newData[dropRowIndex][dropCellIndex] = imageUrl;
+      setGridData(newData);
 
-        // 画像リストから削除
-        setImageList((prevImages) =>
-          prevImages.filter((_, idx) => idx !== data.index)
-        );
-      } else if (data.fromGrid) {
-        // グリッド内でのドロップ、元の位置と新しい位置の画像を交換
-        const newData = [...gridData]; //gridDataの展開
-        const temp = newData[dropRowIndex][dropCellIndex];
-        newData[dropRowIndex][dropCellIndex] =
-          newData[data.rowIndex][data.cellIndex];
-        newData[data.rowIndex][data.cellIndex] = temp;
-        setGridData(newData);
-      } else if (data.fromDragArea) {
-        // ドロップエリアからのドラッグの場合
-        const imageUrl = draggedImages[data.index];
-        const newData = [...gridData];
-        newData[dropRowIndex][dropCellIndex] = imageUrl; // 新しい位置に画像を設定
-        setGridData(newData);
+      // 画像リストから削除
+      setImageList((prevImages) =>
+        prevImages.filter((_, idx) => idx !== index)
+      );
+    } else {
+      // グリッド内でのドロップ、元の位置と新しい位置の画像を交換
+      const newData = [...gridData]; //gridDataの展開
+      const temp = newData[dropRowIndex][dropCellIndex];
+      newData[dropRowIndex][dropCellIndex] = newData[rowIndex][cellIndex];
+      newData[rowIndex][cellIndex] = temp;
+      setGridData(newData);
+    }
+  };
 
-        // ドロップエリアから画像を削除
-        setDraggedImages((prevImages) =>
-          prevImages.filter((_, idx) => idx !== data.index)
-        );
-      }
-    },
-    [imageList, gridData, draggedImages]
-  );
-
-  const handleDragOver = useCallback((e) => {
+  const handleDragOver = (e) => {
     e.preventDefault(); // ドロップを許可する
-  }, []);
+  };
 
-  const closeModal = useCallback(() => {
+  const closeModal = () => {
     setIsModalOpen(false);
-  }, []);
+  };
 
   // グリッドの画像をクリックしたときの処理（モーダルを開く + 選択状態を更新）
-  const handleGridImageClick = useCallback((rowIndex, cellIndex, imageUrl) => {
+  const handleGridImageClick = (rowIndex, cellIndex, imageUrl) => {
     // モーダルを開く処理
     setSelectedImage(imageUrl);
     setIsModalOpen(true);
     // 選択された画像のインデックスを更新
     setSelectedGridImageIndex(`${rowIndex}-${cellIndex}`);
-  }, []);
-
-  const handleDropOnDragArea = useCallback(
-    (e) => {
-      e.preventDefault();
-      const { rowIndex, cellIndex, fromGrid } = JSON.parse(
-        e.dataTransfer.getData("application/json")
-      );
-
-      if (fromGrid) {
-        const imageUrl = gridData[rowIndex][cellIndex];
-        setDraggedImages((prev) => [...prev, imageUrl]); // draggedImages に画像を追加
-
-        // gridData から該当する画像を削除
-        setGridData((prevGridData) => {
-          const newGridData = [...prevGridData];
-          newGridData[rowIndex][cellIndex] = null;
-          return newGridData;
-        });
-      }
-    },
-    [gridData]
-  );
-
-  // レンダリングを効率化するために、gridTemplateColumns のスタイルを useMemo でメモ化
-  const gridStyle = useMemo(
-    () => ({
-      gridTemplateColumns: `repeat(${gridSize.cols}, 1fr)`,
-    }),
-    [gridSize.cols]
-  );
+  };
 
   // const handleImagesSelected = (images) => {
   //   setImageList((prevImages) => [...prevImages, ...images]);
@@ -332,14 +286,6 @@ export function ImageGridDragDrop() {
     }
   };
 
-  const handleDragStartOnDragArea = (e, index) => {
-    const dragData = JSON.stringify({
-      index,
-      fromDragArea: true, // ドラッグエリアからのドラッグを示す
-    });
-    e.dataTransfer.setData("application/json", dragData);
-  };
-
   return (
     <div>
       <Title row={gridSize.rows} col={gridSize.cols} />
@@ -354,7 +300,10 @@ export function ImageGridDragDrop() {
           initializeGridData={initializeGridData}
         />
 
-        <div className="grid gap-1 ml-4" style={gridStyle}>
+        <div
+          className="grid gap-1 ml-4"
+          style={{ gridTemplateColumns: `repeat(${gridSize.cols}, 1fr)` }}
+        >
           {gridData.map((row, rowIndex) =>
             row.map((cell, cellIndex) => (
               <div
@@ -392,27 +341,6 @@ export function ImageGridDragDrop() {
               </div>
             ))
           )}
-        </div>
-
-        {/* ドラッグされた画像を表示するドロップエリア */}
-        <div
-          className="flex overflow-auto border-2 border-dashed border-gray-300 bg-white  ml-2"
-          style={{ minHeight: "100px", minWidth: "300px" }} // ドロップエリアの最小高さを設定
-          onDrop={handleDropOnDragArea}
-          onDragOver={(e) => e.preventDefault()}
-        >
-          <div className="grid grid-cols-3 grid-rows-4 gap-1">
-            {draggedImages.map((image, index) => (
-              <img
-                key={index}
-                src={image}
-                alt={`Dragged-${index}`}
-                draggable="true"
-                onDragStart={(e) => handleDragStartOnDragArea(e, index)} // この関数を追加します
-                className="w-32 h-32 mr-2 p-2"
-              />
-            ))}
-          </div>
         </div>
         <Modal
           selectedImage={selectedImage}
