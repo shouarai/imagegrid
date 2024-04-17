@@ -18,6 +18,8 @@ export function ImageGridDragDrop() {
   const [isModalOpen, setIsModalOpen] = useState(false); // モーダルの表示状態
   const [selectedGridImageIndex, setSelectedGridImageIndex] = useState(null); // 選択された画像のインデックス（グリッド内）を追跡する新しい状態
   const [draggedImages, setDraggedImages] = useState([]); // 複数の画像を保持する新しい状態
+  const [updateDatabase, setUpdateDatabase] = useState(false);
+  const [updateDragAreaDatabase, setUpdateDragAreaDatabase] = useState(false);
 
   useEffect(() => {
     const { rows, cols } = gridSize; // 現在のグリッドサイズを取得
@@ -25,7 +27,7 @@ export function ImageGridDragDrop() {
     // URLからクエリパラメーターを取得
     const queryParams = new URLSearchParams(window.location.search);
     const nombre = queryParams.get("nombre"); // 'nombre' パラメーターの値を取得
-
+    //gridDataの位置情報を取得
     const fetchSavedGridData = async () => {
       try {
         const response = await fetch(
@@ -34,7 +36,6 @@ export function ImageGridDragDrop() {
         const data = await response.json();
         const gridDataJson = JSON.parse(data[0][positionJsonProperty]);
         if (gridDataJson["images"] && gridDataJson["images"].length > 0) {
-          // 新しい4x4のグリッドを初期化
           let newGridData = Array(rows)
             .fill()
             .map(() => Array(cols).fill(null));
@@ -53,7 +54,7 @@ export function ImageGridDragDrop() {
           setGridData(newGridData);
           return; // 早期リターン
         }
-        // 保存されたgridDataがない場合、既存のロジックを実行
+        // 保存されたgridDataの位置情報がない場合、既存のロジックを実行
         fetchImages();
       } catch (error) {
         console.error("Failed to fetch saved grid data:", error);
@@ -64,10 +65,38 @@ export function ImageGridDragDrop() {
       }
     };
 
+    //dragAreaDataの位置情報を取得
+    const fetchDragAreaData = async () => {
+      try {
+        const responseDragArea = await fetch(
+          `https://www.teraos.net/sptokyo/shaddy/get_dragAreaData.php?filename=台割作成&nombre=${nombre}`
+        );
+        const responseDragAreaData = await responseDragArea.json();
+        const dragAreaDataJson = JSON.parse(
+          responseDragAreaData[0]["dragAreaJson"]
+        );
+        if (
+          dragAreaDataJson["draggedImages"] &&
+          dragAreaDataJson["draggedImages"].length > 0
+        ) {
+          setDraggedImages(dragAreaDataJson["draggedImages"]);
+          return; // 早期リターン
+        }
+        // 保存されたdragAreaDataがない場合、初期化を実行
+        setDraggedImages([]);
+      } catch (error) {
+        console.error("Failed to fetch dragAreaData:", error);
+        // 保存されたdragAreaDataの取得に失敗した場合、初期化を実行
+        setDraggedImages([]);
+      }
+    };
+
+    //ページの申込み番号一覧を取得
     const fetchImages = async () => {
       try {
         const response = await fetch(
           // `https://www.teraos.net/sptokyo7/api/v2/shaddy/image_List.php?id=${nombre}`
+
           `https://www.teraos.net/sptokyo/shaddy/image_List_secound.php?filename=台割作成&nombre=${nombre}`
         );
 
@@ -77,7 +106,6 @@ export function ImageGridDragDrop() {
             .then((results) => {
               console.log(results); // 全てのresponseDataを含む配列を表示
               // ここで取得したdataをgridDataの形式に合わせて加工
-              // この例では、取得した画像リストの先頭から4x4のグリッドを埋めるものと仮定
               const newGridData = Array(rows)
                 .fill()
                 .map((_, rowIndex) =>
@@ -106,6 +134,7 @@ export function ImageGridDragDrop() {
       }
     };
 
+    //ファイル名が申込み番号の画像のアセットIDの一覧を取得
     const fetchData = async (data) => {
       const promises = data.map(async (item) => {
         const applicationNo = item; //申込番号　画像のファイル名
@@ -120,8 +149,10 @@ export function ImageGridDragDrop() {
       return results; // 全てのresponseDataが含まれた配列を返します
     };
 
+    //ノンブルがあったら処理
     if (nombre) {
       fetchSavedGridData();
+      fetchDragAreaData();
     }
   }, [gridSize]);
 
@@ -172,15 +203,16 @@ export function ImageGridDragDrop() {
     e.dataTransfer.setData("application/json", dragData);
   }, []);
 
+  //gridDataにドロップされたとき
   const handleDrop = useCallback(
     (e, dropRowIndex, dropCellIndex) => {
       e.preventDefault();
       setSelectedGridImageIndex(null);
       const data = JSON.parse(e.dataTransfer.getData("application/json"));
 
+      // 外部からのドロップ
       if (data.fromList) {
         const imageUrl = imageList[data.index];
-        // 外部からのドロップ
         const newData = [...gridData];
         newData[dropRowIndex][dropCellIndex] = imageUrl;
         setGridData(newData);
@@ -198,17 +230,20 @@ export function ImageGridDragDrop() {
         newData[data.rowIndex][data.cellIndex] = temp;
         setGridData(newData);
       } else if (data.fromDragArea) {
-        // ドロップエリアからのドラッグの場合
+        // ドラッグエリアからのドラッグの場合
         const imageUrl = draggedImages[data.index];
         const newData = [...gridData];
         newData[dropRowIndex][dropCellIndex] = imageUrl; // 新しい位置に画像を設定
         setGridData(newData);
 
-        // ドロップエリアから画像を削除
+        // ドラッグエリアから画像を削除
         setDraggedImages((prevImages) =>
           prevImages.filter((_, idx) => idx !== data.index)
         );
+
+        setUpdateDragAreaDatabase(true); // ドラッグエリアのデータベース更新
       }
+      setUpdateDatabase(true); // gridDataのデータベース更新
     },
     [imageList, gridData, draggedImages]
   );
@@ -230,66 +265,8 @@ export function ImageGridDragDrop() {
     setSelectedGridImageIndex(`${rowIndex}-${cellIndex}`);
   }, []);
 
-  const handleDropOnDragArea = useCallback(
-    (e) => {
-      e.preventDefault();
-      const { rowIndex, cellIndex, fromGrid } = JSON.parse(
-        e.dataTransfer.getData("application/json")
-      );
-
-      if (fromGrid) {
-        const imageUrl = gridData[rowIndex][cellIndex];
-        setDraggedImages((prev) => [...prev, imageUrl]); // draggedImages に画像を追加
-
-        // gridData から該当する画像を削除
-        setGridData((prevGridData) => {
-          const newGridData = [...prevGridData];
-          newGridData[rowIndex][cellIndex] = null;
-          return newGridData;
-        });
-      }
-    },
-    [gridData]
-  );
-
-  // レンダリングを効率化するために、gridTemplateColumns のスタイルを useMemo でメモ化
-  const gridStyle = useMemo(
-    () => ({
-      gridTemplateColumns: `repeat(${gridSize.cols}, 1fr)`,
-    }),
-    [gridSize.cols]
-  );
-
-  // const handleImagesSelected = (images) => {
-  //   setImageList((prevImages) => [...prevImages, ...images]);
-  // };
-
-  // CSVを生成してダウンロードする関数
-  const downloadGridDataAsCSV = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "ImageURL,RowIndex,CellIndex\n"; // ヘッダー行
-    gridData.forEach((row, rowIndex) => {
-      row.forEach((cell, cellIndex) => {
-        if (cell) {
-          // URLのファイル名部分を抽出（例として）
-          const imageName = cell.substring(cell.lastIndexOf("/") + 1);
-          console.log(cell);
-          csvContent += `${imageName},${rowIndex},${cellIndex}\n`;
-        }
-      });
-    });
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "gridData.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   // 新しい関数：gridDataをサーバーにPOSTする
-  const postGridData = async () => {
+  const postGridData = useCallback(async () => {
     // URLからクエリパラメーターを取得
     const queryParamPostGrid = new URLSearchParams(window.location.search);
     const nombreObj = queryParamPostGrid.get("nombre"); // 'nombre' パラメーターの値を取得
@@ -330,6 +307,126 @@ export function ImageGridDragDrop() {
       console.error("Error posting grid data:", error);
       alert("Failed to post grid data");
     }
+  }, [gridData, gridSize]);
+
+  //ドラッグ枠に画像がドロップされたとき
+  const handleDropOnDragArea = useCallback(
+    async (e) => {
+      e.preventDefault();
+      const { rowIndex, cellIndex, fromGrid } = JSON.parse(
+        e.dataTransfer.getData("application/json")
+      );
+
+      if (fromGrid) {
+        const imageUrl = gridData[rowIndex][cellIndex];
+
+        /*ブラウザの状態を変更*/
+        // draggedImages に画像を追加
+        setDraggedImages((prev) => [...prev, imageUrl]);
+        // gridData から該当する画像を削除
+        setGridData((prevGridData) => {
+          const newGridData = [...prevGridData];
+          newGridData[rowIndex][cellIndex] = null;
+          return newGridData;
+        });
+        /*↑ブラウザの状態を変更*/
+
+        setUpdateDatabase(true); // Set the trigger for the database update
+        setUpdateDragAreaDatabase(true); // データベース更新をトリガー
+      }
+    },
+    [gridData]
+  );
+
+  useEffect(() => {
+    if (updateDatabase) {
+      postGridData()
+        .then(() => {
+          setUpdateDatabase(false); // Reset the trigger after the database update
+        })
+        .catch((error) => {
+          console.error("Failed to update database", error);
+          // ここでエラー処理またはリトライロジックを扱う
+        });
+    }
+  }, [updateDatabase, postGridData]);
+
+  const postDragAreaData = useCallback(async () => {
+    const queryParams = new URLSearchParams(window.location.search);
+    const nombre = queryParams.get("nombre");
+    const postData = {
+      draggedImages: draggedImages,
+    };
+
+    try {
+      const response = await fetch(
+        `https://www.teraos.net/sptokyo/shaddy/dragDataPost.php?filename=台割作成&nombre=${nombre}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(postData),
+        }
+      );
+      if (!response.ok) {
+        throw new Error("Failed to post drag area data");
+      }
+      const result = await response.json();
+      console.log(result);
+      alert("Drag area data posted successfully");
+    } catch (error) {
+      console.error("Error posting drag area data:", error);
+      alert("Failed to post drag area data");
+    }
+  }, [draggedImages]);
+
+  useEffect(() => {
+    if (updateDragAreaDatabase) {
+      postDragAreaData()
+        .then(() => {
+          setUpdateDragAreaDatabase(false); // データベース更新トリガーをリセット
+        })
+        .catch((error) => {
+          console.error("Failed to update drag area database", error);
+        });
+    }
+  }, [updateDragAreaDatabase, postDragAreaData]);
+
+  // レンダリングを効率化するために、gridTemplateColumns のスタイルを useMemo でメモ化
+  const gridStyle = useMemo(
+    () => ({
+      gridTemplateColumns: `repeat(${gridSize.cols}, 1fr)`,
+    }),
+    [gridSize.cols]
+  );
+
+  // const handleImagesSelected = (images) => {
+  //   setImageList((prevImages) => [...prevImages, ...images]);
+  // };
+
+  // CSVを生成してダウンロードする関数
+  const downloadGridDataAsCSV = () => {
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "ImageURL,RowIndex,CellIndex\n"; // ヘッダー行
+    gridData.forEach((row, rowIndex) => {
+      row.forEach((cell, cellIndex) => {
+        if (cell) {
+          // URLのファイル名部分を抽出（例として）
+          const imageName = cell.substring(cell.lastIndexOf("/") + 1);
+          console.log(cell);
+          csvContent += `${imageName},${rowIndex},${cellIndex}\n`;
+        }
+      });
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "gridData.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleDragStartOnDragArea = (e, index) => {
@@ -394,10 +491,10 @@ export function ImageGridDragDrop() {
           )}
         </div>
 
-        {/* ドラッグされた画像を表示するドロップエリア */}
+        {/* ドラッグされた画像を表示するドラッグエリア */}
         <div
           className="flex overflow-auto border-2 border-dashed border-gray-300 bg-white  ml-2"
-          style={{ minHeight: "100px", minWidth: "300px" }} // ドロップエリアの最小高さを設定
+          style={{ minHeight: "100px", minWidth: "300px" }} // ドラッグエリアの最小高さを設定
           onDrop={handleDropOnDragArea}
           onDragOver={(e) => e.preventDefault()}
         >
